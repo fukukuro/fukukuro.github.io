@@ -1,0 +1,944 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>忍finity 迷路設計図エディター</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    .grid-container {
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    
+    :root {
+      --cell-size: 22px;
+      --wall-thick: 5px;
+      --font-size: 11px;
+    }
+
+    /* マス目スタイル */
+    .maze-cell {
+      font-size: var(--font-size);
+      position: relative;
+      box-sizing: border-box;
+      flex-shrink: 0;
+    }
+    
+    /* 壁領域スタイル */
+    .v-wall {
+      width: var(--wall-thick);
+      cursor: pointer;
+      transition: background-color 0.1s;
+      flex-shrink: 0;
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .h-wall {
+      height: var(--wall-thick);
+      cursor: pointer;
+      transition: background-color 0.1s;
+      flex-shrink: 0;
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .c-wall {
+      width: var(--wall-thick);
+      height: var(--wall-thick);
+      background-color: #CBD5E1;
+      flex-shrink: 0;
+    }
+
+    /* 壁上に表示するラベル/番号スタイル */
+    .wall-label {
+      position: absolute;
+      font-size: 9px;
+      font-weight: bold;
+      color: #ffffff;
+      background-color: rgba(15, 23, 42, 0.85);
+      padding: 0px 3px;
+      border-radius: 3px;
+      z-index: 5;
+      pointer-events: none;
+      white-space: nowrap;
+      line-height: 1.1;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.3);
+    }
+
+    /* 壁状態スタイル */
+    .wall-none {
+      background-color: #E2E8F0;
+      background-image: none !important;
+    }
+    .wall-none:hover {
+      background-color: #94A3B8;
+    }
+
+    /* 太線（壁） */
+    .wall-thick {
+      background-color: #0F172A !important;
+      background-image: none !important;
+    }
+
+    /* カラー線 */
+    .wall-red { background-color: #EF4444 !important; background-image: none !important; }
+    .wall-blue { background-color: #3B82F6 !important; background-image: none !important; }
+    .wall-green { background-color: #10B981 !important; background-image: none !important; }
+    .wall-yellow { background-color: #EAB308 !important; background-image: none !important; }
+    .wall-orange { background-color: #F97316 !important; background-image: none !important; }
+
+    /* 波線（回転扉） */
+    .wall-wavy {
+      background-color: #A855F7 !important;
+      background-image: repeating-linear-gradient(45deg, #7E22CE 0, #7E22CE 3px, #A855F7 3px, #A855F7 6px) !important;
+    }
+
+    @media print {
+      .no-print { display: none !important; }
+      .print-area { overflow: visible !important; }
+    }
+  </style>
+</head>
+<body class="bg-slate-100 font-sans text-slate-800 min-h-screen flex flex-col">
+
+  <div id="toast" class="fixed top-4 right-4 z-50 transform translate-y-[-100px] opacity-0 transition-all duration-300 bg-slate-900 text-white px-4 py-2.5 rounded-lg shadow-xl text-xs font-semibold flex items-center gap-2 border border-slate-700">
+    <i id="toastIcon" class="fa-solid fa-circle-check text-emerald-400"></i>
+    <span id="toastMsg">通知メッセージ</span>
+  </div>
+
+  <header class="bg-slate-900 text-white p-3 shadow-md no-print flex flex-wrap justify-between items-center gap-2 z-10">
+    <div class="flex items-center space-x-3">
+      <div class="bg-red-600 text-white font-bold px-2.5 py-1 rounded text-sm tracking-wider">忍finity</div>
+      <h1 class="text-lg font-bold">迷路設計図エディター</h1>
+    </div>
+
+    <div class="flex items-center gap-2">
+      <div class="bg-slate-800 p-1 rounded-lg flex border border-slate-700">
+        <button id="modeViewBtn" onclick="setMode('view')" class="px-3 py-1 text-xs font-semibold rounded text-slate-300 hover:text-white flex items-center gap-1">
+          <i class="fa-solid fa-eye"></i> 閲覧モード
+        </button>
+        <button id="modeEditBtn" onclick="setMode('edit')" class="px-3 py-1 text-xs font-semibold rounded bg-amber-500 text-slate-950 shadow flex items-center gap-1">
+          <i class="fa-solid fa-pen-to-square"></i> 編集モード
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <div class="flex-1 flex flex-col lg:flex-row overflow-hidden">
+
+    <aside id="toolbar" class="w-full lg:w-80 bg-white border-b lg:border-b-0 lg:border-r border-slate-200 p-4 space-y-4 overflow-y-auto no-print flex-shrink-0 shadow-sm z-10">
+      
+      <div class="space-y-2">
+        <div class="flex items-center justify-between p-2 rounded bg-slate-50 border border-slate-200">
+          <span class="text-xs font-semibold text-slate-500">現在のモード:</span>
+          <span id="currentModeBadge" class="px-2 py-0.5 text-xs font-bold rounded bg-amber-100 text-amber-800 border border-amber-300">
+            編集モード
+          </span>
+        </div>
+
+        <div class="p-2.5 rounded bg-slate-50 border border-slate-200 space-y-2">
+          <span class="text-xs font-bold text-slate-700 block"><i class="fa-solid fa-table-cells mr-1"></i>マス数設定</span>
+          <div class="grid grid-cols-2 gap-2 text-xs">
+            <div>
+              <label class="block text-[10px] text-slate-500 font-semibold mb-0.5">縦 (行数)</label>
+              <input type="number" id="rowsInput" value="31" min="3" max="80" onchange="updateGridDimensions()" class="w-full px-1.5 py-1 border border-slate-300 rounded text-center font-bold text-slate-800">
+            </div>
+            <div>
+              <label class="block text-[10px] text-slate-500 font-semibold mb-0.5">横 (列数)</label>
+              <input type="number" id="colsInput" value="42" min="3" max="80" onchange="updateGridDimensions()" class="w-full px-1.5 py-1 border border-slate-300 rounded text-center font-bold text-slate-800">
+            </div>
+          </div>
+        </div>
+
+        <div class="p-2.5 rounded bg-slate-50 border border-slate-200 space-y-2">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-bold text-slate-700"><i class="fa-solid fa-sliders mr-1"></i>行・列ごとの長さ設定</span>
+          </div>
+
+          <details class="group bg-white border border-slate-200 rounded text-xs">
+            <summary class="p-2 font-bold text-indigo-700 cursor-pointer flex justify-between items-center select-none hover:bg-slate-50">
+              <span>↕ 行（縦）ごとの長さ個別設定</span>
+              <i class="fa-solid fa-chevron-down text-slate-400 group-open:rotate-180 transition-transform"></i>
+            </summary>
+            <div class="p-2 border-t border-slate-200 space-y-2 bg-slate-50/50">
+              <div class="flex gap-1">
+                <button onclick="setAllRowLengths(1)" class="flex-1 py-0.5 bg-slate-200 hover:bg-slate-300 text-[10px] rounded font-bold">全1</button>
+                <button onclick="setAllRowLengths(0.5)" class="flex-1 py-0.5 bg-slate-200 hover:bg-slate-300 text-[10px] rounded font-bold">全0.5</button>
+                <button onclick="setEdgeRowLengths(0.5, 1)" class="flex-1 py-0.5 bg-purple-100 hover:bg-purple-200 text-purple-800 text-[10px] rounded font-bold">端0.5/内1</button>
+              </div>
+              <div id="rowLengthsContainer" class="grid grid-cols-3 gap-1 max-h-40 overflow-y-auto p-1 bg-white border rounded"></div>
+            </div>
+          </details>
+
+          <details class="group bg-white border border-slate-200 rounded text-xs">
+            <summary class="p-2 font-bold text-purple-700 cursor-pointer flex justify-between items-center select-none hover:bg-slate-50">
+              <span>↔ 列（横）ごとの長さ個別設定</span>
+              <i class="fa-solid fa-chevron-down text-slate-400 group-open:rotate-180 transition-transform"></i>
+            </summary>
+            <div class="p-2 border-t border-slate-200 space-y-2 bg-slate-50/50">
+              <div class="flex gap-1">
+                <button onclick="setAllColLengths(1)" class="flex-1 py-0.5 bg-slate-200 hover:bg-slate-300 text-[10px] rounded font-bold">全1</button>
+                <button onclick="setAllColLengths(0.5)" class="flex-1 py-0.5 bg-slate-200 hover:bg-slate-300 text-[10px] rounded font-bold">全0.5</button>
+                <button onclick="setEdgeColLengths(0.5, 1)" class="flex-1 py-0.5 bg-purple-100 hover:bg-purple-200 text-purple-800 text-[10px] rounded font-bold">端0.5/内1</button>
+              </div>
+              <div id="colLengthsContainer" class="grid grid-cols-3 gap-1 max-h-40 overflow-y-auto p-1 bg-white border rounded"></div>
+            </div>
+          </details>
+
+          <button onclick="applyLengthSettings()" class="w-full py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded text-xs transition shadow-sm flex items-center justify-center gap-1 mt-1">
+            <i class="fa-solid fa-arrows-rotate"></i> 設定を反映
+          </button>
+        </div>
+
+        <div class="p-2 rounded bg-slate-50 border border-slate-200 space-y-1.5">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-semibold text-slate-600"><i class="fa-solid fa-magnifying-glass-plus mr-1"></i>マス目表示サイズ</span>
+            <span id="zoomLevelText" class="text-xs text-slate-500 font-mono">中 (22px)</span>
+          </div>
+          <div class="grid grid-cols-4 gap-1">
+            <button onclick="setZoom(16)" class="px-1.5 py-1 text-[11px] bg-white border border-slate-300 rounded hover:bg-slate-100 font-medium">小</button>
+            <button onclick="setZoom(22)" class="px-1.5 py-1 text-[11px] bg-indigo-50 border border-indigo-300 rounded font-bold text-indigo-700">中</button>
+            <button onclick="setZoom(28)" class="px-1.5 py-1 text-[11px] bg-white border border-slate-300 rounded hover:bg-slate-100 font-medium">大</button>
+            <button onclick="fitToScreen()" class="px-1.5 py-1 text-[11px] bg-indigo-600 text-white rounded font-medium hover:bg-indigo-700">自動</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="editTools" class="space-y-4">
+        <div>
+          <div class="flex items-center justify-between mb-2">
+            <h2 class="text-xs font-bold text-slate-500 uppercase tracking-wider">描画ツール選択</h2>
+            <span class="text-[10px] text-slate-400">※同時に1つだけ選択</span>
+          </div>
+
+          <div class="space-y-1.5">
+            <span class="text-[10px] font-bold text-indigo-600 block">■ マス目用ツール</span>
+            <div class="grid grid-cols-2 gap-1.5">
+              <button onclick="selectTool('default')" class="tool-btn active-tool p-2 border rounded-lg text-left text-xs font-medium flex items-center gap-2 hover:bg-slate-50" data-tool="default">
+                <span class="w-4 h-4 border border-slate-400 bg-white inline-block rounded-sm"></span>
+                <span>□ 通路</span>
+              </button>
+              <button onclick="selectTool('pillar')" class="tool-btn p-2 border rounded-lg text-left text-xs font-medium flex items-center gap-2 hover:bg-slate-50" data-tool="pillar">
+                <span class="w-4 h-4 border border-slate-600 bg-slate-200 flex items-center justify-center font-bold text-[10px]">❌</span>
+                <span>❌ 支柱</span>
+              </button>
+              <button onclick="selectTool('black')" class="tool-btn p-2 border rounded-lg text-left text-xs font-medium flex items-center gap-2 hover:bg-slate-50" data-tool="black">
+                <span class="w-4 h-4 bg-slate-800 inline-block rounded-sm"></span>
+                <span>■ その他</span>
+              </button>
+              <button onclick="selectTool('reception')" class="tool-btn p-2 border rounded-lg text-left text-xs font-medium flex items-center gap-2 hover:bg-slate-50" data-tool="reception">
+                <span class="w-4 h-4 border border-emerald-600 bg-emerald-100 text-emerald-800 font-bold text-[10px] flex items-center justify-center rounded-sm">☑</span>
+                <span>☑ 受付</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="space-y-1.5 mt-3">
+            <span class="text-[10px] font-bold text-purple-600 block">━ 境界線用ツール</span>
+            <div class="grid grid-cols-2 gap-1.5">
+              <button onclick="selectTool('wall-none')" class="tool-btn p-2 border rounded-lg text-left text-xs font-medium flex items-center gap-2 hover:bg-slate-50 col-span-2" data-tool="wall-none">
+                <span class="w-6 h-2 bg-slate-200 border border-slate-300 rounded-sm"></span>
+                <span>細線 (なにもなし・通路)</span>
+              </button>
+              <button onclick="selectTool('wall-thick')" class="tool-btn p-2 border rounded-lg text-left text-xs font-medium flex items-center gap-2 hover:bg-slate-50" data-tool="wall-thick">
+                <span class="w-5 h-2 bg-slate-900 rounded-sm"></span>
+                <span>太線 (壁)</span>
+              </button>
+              <button onclick="selectTool('wall-wavy')" class="tool-btn p-2 border rounded-lg text-left text-xs font-medium flex items-center gap-2 hover:bg-slate-50" data-tool="wall-wavy">
+                <span class="w-5 h-2 bg-purple-500 rounded-sm" style="background-image: repeating-linear-gradient(45deg, #7e22ce 0, #7e22ce 3px, #a855f7 3px, #a855f7 6px);"></span>
+                <span>波線 (回転扉)</span>
+              </button>
+
+              <!-- カラー追加 -->
+              <button onclick="selectTool('wall-red')" class="tool-btn p-2 border rounded-lg text-left text-xs font-medium flex items-center gap-2 hover:bg-slate-50" data-tool="wall-red">
+                <span class="w-5 h-2 bg-red-500 rounded-sm"></span>
+                <span>赤線</span>
+              </button>
+              <button onclick="selectTool('wall-blue')" class="tool-btn p-2 border rounded-lg text-left text-xs font-medium flex items-center gap-2 hover:bg-slate-50" data-tool="wall-blue">
+                <span class="w-5 h-2 bg-blue-500 rounded-sm"></span>
+                <span>青線</span>
+              </button>
+              <button onclick="selectTool('wall-green')" class="tool-btn p-2 border rounded-lg text-left text-xs font-medium flex items-center gap-2 hover:bg-slate-50" data-tool="wall-green">
+                <span class="w-5 h-2 bg-emerald-500 rounded-sm"></span>
+                <span>緑線</span>
+              </button>
+              <button onclick="selectTool('wall-yellow')" class="tool-btn p-2 border rounded-lg text-left text-xs font-medium flex items-center gap-2 hover:bg-slate-50" data-tool="wall-yellow">
+                <span class="w-5 h-2 bg-amber-400 rounded-sm"></span>
+                <span>黄線</span>
+              </button>
+              <button onclick="selectTool('wall-orange')" class="tool-btn p-2 border rounded-lg text-left text-xs font-medium flex items-center gap-2 hover:bg-slate-50" data-tool="wall-orange">
+                <span class="w-5 h-2 bg-orange-500 rounded-sm"></span>
+                <span>オレンジ線</span>
+              </button>
+
+              <!-- 番号（テキスト）打刻機能 -->
+              <button onclick="selectTool('wall-number')" class="tool-btn p-2 border rounded-lg text-left text-xs font-medium flex items-center gap-2 hover:bg-slate-50" data-tool="wall-number">
+                <span class="w-5 h-4 bg-slate-800 text-white flex items-center justify-center font-bold text-[10px] rounded-sm">12</span>
+                <span>数字 (番号)</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="p-2 mt-3 bg-amber-50 border border-amber-200 rounded text-[11px] text-amber-800 flex items-center gap-1.5">
+            <i class="fa-solid fa-shield-halved text-amber-600"></i>
+            <span>選択中以外の要素に触れても変更されません。</span>
+          </div>
+
+        </div>
+      </div>
+
+      <div id="viewTools" class="hidden space-y-3">
+        <div class="p-3 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-800">
+          <p class="font-bold mb-1"><i class="fa-solid fa-circle-info mr-1"></i> 閲覧モード中</p>
+          <p>誤編集防止モードです。編集操作が無効化されています。</p>
+        </div>
+      </div>
+
+      <hr class="border-slate-200">
+
+      <div class="space-y-2">
+        <h2 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">データ保存 / 復元</h2>
+        <div class="grid grid-cols-2 gap-2">
+          <button onclick="saveData()" class="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-lg text-xs font-medium transition flex items-center justify-center gap-1.5">
+            <i class="fa-solid fa-download"></i> 保存 (JSON)
+          </button>
+          <label class="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 rounded-lg text-xs font-medium transition cursor-pointer flex items-center justify-center gap-1.5">
+            <i class="fa-solid fa-upload"></i> 読込 (JSON)
+            <input type="file" id="fileInput" onchange="loadData(event)" class="hidden" accept=".json">
+          </label>
+        </div>
+        <button onclick="clearGrid()" class="w-full px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 rounded-lg text-xs font-medium transition flex items-center justify-center gap-1">
+          <i class="fa-solid fa-trash-can"></i> すべてリセット
+        </button>
+      </div>
+
+    </aside>
+
+    <main id="mainContainer" class="flex-1 bg-slate-200 p-2 md:p-6 overflow-auto print-area relative">
+      
+      <div class="min-w-max mx-auto my-0 flex flex-col items-center">
+        
+        <div id="sheetCard" class="bg-white p-4 md:p-6 rounded-xl shadow-lg border border-slate-300 flex flex-col items-center min-w-max">
+          
+          <div class="w-full flex justify-between items-end pb-3 border-b border-slate-300 mb-4">
+            <div>
+              <span class="text-xs font-bold text-red-600 tracking-wider">中3体験パート 【忍finity】</span>
+              <h2 id="sheetTitle" class="text-xl font-black text-slate-800">《迷路設計図》</h2>
+            </div>
+            <div class="text-right text-xs text-slate-500 font-bold">
+              <span id="gridDimensions">縦 31 × 横 42 マス</span>
+            </div>
+          </div>
+
+          <div id="gridContainer" class="grid-container inline-block border-2 border-slate-800 bg-white shadow-sm p-1">
+            </div>
+
+          <div class="w-full mt-6 pt-3 border-t border-slate-200 text-xs text-slate-500 flex justify-between items-center gap-4">
+            <div class="flex items-center gap-3">
+              <span>【凡例】</span>
+              <span>□ 通路</span>
+              <span>❌ 支柱</span>
+              <span>■ その他</span>
+              <span>☑ 受付</span>
+            </div>
+            <div class="flex items-center gap-2 flex-wrap">
+              <span>― 細線</span>
+              <span><b>━ 太線(壁)</b></span>
+              <span class="text-purple-700"><b>∿ 波線</b></span>
+              <span class="text-red-500">■赤</span>
+              <span class="text-blue-500">■青</span>
+              <span class="text-emerald-500">■緑</span>
+              <span class="text-amber-500">■黄</span>
+              <span class="text-orange-500">■橙</span>
+            </div>
+          </div>
+
+        </div>
+
+      </div>
+
+    </main>
+
+  </div>
+
+  <script>
+    // --- アプリケーション状態 ---
+    let currentMode = 'edit';
+    let currentTool = 'default';
+    let isMouseDown = false;
+    let gridRows = 31;
+    let gridCols = 42;
+    
+    let rowLengths = [];
+    let colLengths = [];
+
+    let gridData = createEmptyGrid(gridRows, gridCols);
+
+    function createEmptyGrid(rows, cols) {
+      const cells = Array(rows).fill(null).map(() => Array(cols).fill('default'));
+      const hWalls = Array(rows + 1).fill(null).map(() => Array(cols).fill(0));
+      const vWalls = Array(rows).fill(null).map(() => Array(cols + 1).fill(0));
+      const hLabels = Array(rows + 1).fill(null).map(() => Array(cols).fill(''));
+      const vLabels = Array(rows).fill(null).map(() => Array(cols + 1).fill(''));
+
+      return { cells, hWalls, vWalls, hLabels, vLabels };
+    }
+
+    function initLengths(rows, cols) {
+      rowLengths = Array(rows).fill(1);
+      if (rows > 1) { rowLengths[0] = 0.5; rowLengths[rows - 1] = 0.5; }
+
+      colLengths = Array(cols).fill(1);
+      if (cols > 1) { colLengths[0] = 0.5; colLengths[cols - 1] = 0.5; }
+    }
+
+    function showToast(msg, isError = false) {
+      const toast = document.getElementById('toast');
+      const toastMsg = document.getElementById('toastMsg');
+      const toastIcon = document.getElementById('toastIcon');
+
+      toastMsg.innerText = msg;
+      toastIcon.className = isError 
+        ? 'fa-solid fa-triangle-exclamation text-amber-400' 
+        : 'fa-solid fa-circle-check text-emerald-400';
+
+      toast.classList.remove('translate-y-[-100px]', 'opacity-0');
+      toast.classList.add('translate-y-0', 'opacity-100');
+
+      setTimeout(() => {
+        toast.classList.remove('translate-y-0', 'opacity-100');
+        toast.classList.add('translate-y-[-100px]', 'opacity-0');
+      }, 2500);
+    }
+
+    function updateLengthsFromUI() {
+      for (let r = 0; r < gridRows; r++) {
+        const input = document.getElementById(`rowLen_${r}`);
+        if (input) rowLengths[r] = parseFloat(input.value) || 1;
+      }
+      for (let c = 0; c < gridCols; c++) {
+        const input = document.getElementById(`colLen_${c}`);
+        if (input) colLengths[c] = parseFloat(input.value) || 1;
+      }
+    }
+
+    function renderLengthUI() {
+      const rContainer = document.getElementById('rowLengthsContainer');
+      const cContainer = document.getElementById('colLengthsContainer');
+
+      rContainer.innerHTML = '';
+      for (let r = 0; r < gridRows; r++) {
+        const div = document.createElement('div');
+        div.className = 'flex flex-col items-center bg-slate-100 p-1 rounded border border-slate-200';
+        div.innerHTML = `
+          <span class="text-[9px] text-slate-500 font-bold">${r + 1}行</span>
+          <input type="number" id="rowLen_${r}" value="${rowLengths[r] || 1}" step="0.1" min="0.1" max="10" 
+                 onkeydown="if(event.key==='Enter') applyLengthSettings()"
+                 class="w-full text-center text-xs font-bold text-indigo-700 bg-white border border-indigo-200 rounded py-0.5">
+        `;
+        rContainer.appendChild(div);
+      }
+
+      cContainer.innerHTML = '';
+      for (let c = 0; c < gridCols; c++) {
+        const div = document.createElement('div');
+        div.className = 'flex flex-col items-center bg-slate-100 p-1 rounded border border-slate-200';
+        div.innerHTML = `
+          <span class="text-[9px] text-slate-500 font-bold">${c + 1}列</span>
+          <input type="number" id="colLen_${c}" value="${colLengths[c] || 1}" step="0.1" min="0.1" max="10" 
+                 onkeydown="if(event.key==='Enter') applyLengthSettings()"
+                 class="w-full text-center text-xs font-bold text-purple-700 bg-white border border-purple-200 rounded py-0.5">
+        `;
+        cContainer.appendChild(div);
+      }
+    }
+
+    function setAllRowLengths(val) {
+      for (let r = 0; r < gridRows; r++) {
+        const input = document.getElementById(`rowLen_${r}`);
+        if (input) input.value = val;
+      }
+      applyLengthSettings();
+    }
+
+    function setEdgeRowLengths(edgeVal, innerVal) {
+      for (let r = 0; r < gridRows; r++) {
+        const input = document.getElementById(`rowLen_${r}`);
+        if (input) input.value = (r === 0 || r === gridRows - 1) ? edgeVal : innerVal;
+      }
+      applyLengthSettings();
+    }
+
+    function setAllColLengths(val) {
+      for (let c = 0; c < gridCols; c++) {
+        const input = document.getElementById(`colLen_${c}`);
+        if (input) input.value = val;
+      }
+      applyLengthSettings();
+    }
+
+    function setEdgeColLengths(edgeVal, innerVal) {
+      for (let c = 0; c < gridCols; c++) {
+        const input = document.getElementById(`colLen_${c}`);
+        if (input) input.value = (c === 0 || c === gridCols - 1) ? edgeVal : innerVal;
+      }
+      applyLengthSettings();
+    }
+
+    function updateGridDimensions() {
+      const rInput = parseInt(document.getElementById('rowsInput').value) || 31;
+      const cInput = parseInt(document.getElementById('colsInput').value) || 42;
+
+      if (rInput !== gridRows || cInput !== gridCols) {
+        while (rowLengths.length < rInput) rowLengths.push(1);
+        rowLengths = rowLengths.slice(0, rInput);
+        while (colLengths.length < cInput) colLengths.push(1);
+        colLengths = colLengths.slice(0, cInput);
+
+        gridRows = rInput;
+        gridCols = cInput;
+        gridData = createEmptyGrid(gridRows, gridCols);
+      }
+
+      renderLengthUI();
+      applyLengthSettings();
+    }
+
+    function applyLengthSettings() {
+      updateLengthsFromUI();
+
+      let totalWidthVal = colLengths.reduce((a, b) => a + b, 0);
+      let totalHeightVal = rowLengths.reduce((a, b) => a + b, 0);
+
+      const totalWidth = totalWidthVal.toFixed(1).replace(/\.0$/, '');
+      const totalHeight = totalHeightVal.toFixed(1).replace(/\.0$/, '');
+
+      document.getElementById('gridDimensions').innerText = 
+        `縦 ${gridRows} × 横 ${gridCols} マス （実寸合計: 横 ${totalWidth} × 縦 ${totalHeight}）`;
+
+      renderGrid();
+    }
+
+    // --- ズームコントロール ---
+    function setZoom(sizePx) {
+      const wallThick = Math.max(3, Math.round(sizePx * 0.22));
+      const fontSize = Math.max(8, Math.round(sizePx * 0.45));
+
+      document.documentElement.style.setProperty('--cell-size', `${sizePx}px`);
+      document.documentElement.style.setProperty('--wall-thick', `${wallThick}px`);
+      document.documentElement.style.setProperty('--font-size', `${fontSize}px`);
+
+      const txt = document.getElementById('zoomLevelText');
+      if (txt) {
+        let label = 'カスタム';
+        if (sizePx <= 16) label = '小';
+        else if (sizePx === 22) label = '中';
+        else if (sizePx >= 28) label = '大';
+        txt.innerText = `${label} (${sizePx}px)`;
+      }
+      renderGrid();
+    }
+
+    function fitToScreen() {
+      const mainContainer = document.getElementById('mainContainer');
+      const availableWidth = mainContainer.clientWidth - 80;
+      let targetSize = Math.floor(availableWidth / (gridCols * 1.25));
+      targetSize = Math.max(10, Math.min(32, targetSize));
+      setZoom(targetSize);
+    }
+
+    // --- グリッド描画処理 ---
+    function renderGrid() {
+      const container = document.getElementById('gridContainer');
+      container.innerHTML = '';
+
+      const baseCellSize = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--cell-size')) || 22;
+
+      for (let r = 0; r < gridRows; r++) {
+        const currentHeightPx = Math.max(6, Math.round(baseCellSize * (rowLengths[r] || 1)));
+
+        // セル行 r の上にある横方向の壁行
+        const hRow = document.createElement('div');
+        hRow.className = 'flex items-center';
+
+        for (let c = 0; c < gridCols; c++) {
+          const currentWidthPx = Math.max(6, Math.round(baseCellSize * (colLengths[c] || 1)));
+
+          const corner = document.createElement('div');
+          corner.className = 'c-wall';
+          hRow.appendChild(corner);
+
+          const hWall = document.createElement('div');
+          hWall.id = `hWall_${r}_${c}`;
+          const state = gridData.hWalls[r][c];
+          hWall.className = `h-wall ${getWallClass(state)}`;
+          hWall.style.width = `${currentWidthPx}px`;
+
+          renderWallLabel(hWall, gridData.hLabels[r][c]);
+          
+          if (currentMode === 'edit') {
+            hWall.onmousedown = (e) => {
+              isMouseDown = true;
+              applyToolToHWall(r, c, hWall);
+              e.preventDefault();
+            };
+            hWall.onmouseenter = () => {
+              if (isMouseDown && currentTool !== 'wall-number') applyToolToHWall(r, c, hWall);
+            };
+          } else {
+            hWall.style.cursor = 'default';
+          }
+          hRow.appendChild(hWall);
+        }
+        const endCorner = document.createElement('div');
+        endCorner.className = 'c-wall';
+        hRow.appendChild(endCorner);
+
+        container.appendChild(hRow);
+
+        // セルおよび縦方向の壁行 r
+        const cellRow = document.createElement('div');
+        cellRow.className = 'flex items-center';
+
+        for (let c = 0; c < gridCols; c++) {
+          const currentWidthPx = Math.max(6, Math.round(baseCellSize * (colLengths[c] || 1)));
+
+          const vWall = document.createElement('div');
+          vWall.id = `vWall_${r}_${c}`;
+          const state = gridData.vWalls[r][c];
+          vWall.className = `v-wall ${getWallClass(state)}`;
+          vWall.style.height = `${currentHeightPx}px`;
+
+          renderWallLabel(vWall, gridData.vLabels[r][c]);
+          
+          if (currentMode === 'edit') {
+            vWall.onmousedown = (e) => {
+              isMouseDown = true;
+              applyToolToVWall(r, c, vWall);
+              e.preventDefault();
+            };
+            vWall.onmouseenter = () => {
+              if (isMouseDown && currentTool !== 'wall-number') applyToolToVWall(r, c, vWall);
+            };
+          } else {
+            vWall.style.cursor = 'default';
+          }
+          cellRow.appendChild(vWall);
+
+          // セル（マス目）
+          const cell = document.createElement('div');
+          cell.id = `cell_${r}_${c}`;
+          cell.style.width = `${currentWidthPx}px`;
+          cell.style.height = `${currentHeightPx}px`;
+
+          applyCellStyling(cell, gridData.cells[r][c]);
+
+          if (currentMode === 'edit') {
+            cell.onmousedown = (e) => {
+              isMouseDown = true;
+              applyToolToCell(r, c, cell);
+              e.preventDefault();
+            };
+            cell.onmouseenter = () => {
+              if (isMouseDown) applyToolToCell(r, c, cell);
+            };
+          } else {
+            cell.style.cursor = 'default';
+          }
+
+          cellRow.appendChild(cell);
+        }
+
+        // 最右端の縦方向の壁
+        const vWallEnd = document.createElement('div');
+        vWallEnd.id = `vWall_${r}_${gridCols}`;
+        const stateEnd = gridData.vWalls[r][gridCols];
+        vWallEnd.className = `v-wall ${getWallClass(stateEnd)}`;
+        vWallEnd.style.height = `${currentHeightPx}px`;
+        renderWallLabel(vWallEnd, gridData.vLabels[r][gridCols]);
+
+        if (currentMode === 'edit') {
+          vWallEnd.onmousedown = (e) => {
+            isMouseDown = true;
+            applyToolToVWall(r, gridCols, vWallEnd);
+            e.preventDefault();
+          };
+          vWallEnd.onmouseenter = () => {
+            if (isMouseDown && currentTool !== 'wall-number') applyToolToVWall(r, gridCols, vWallEnd);
+          };
+        } else {
+          vWallEnd.style.cursor = 'default';
+        }
+        cellRow.appendChild(vWallEnd);
+
+        container.appendChild(cellRow);
+      }
+
+      // 最下部の横方向の壁行
+      const bottomRow = document.createElement('div');
+      bottomRow.className = 'flex items-center';
+      for (let c = 0; c < gridCols; c++) {
+        const currentWidthPx = Math.max(6, Math.round(baseCellSize * (colLengths[c] || 1)));
+
+        const corner = document.createElement('div');
+        corner.className = 'c-wall';
+        bottomRow.appendChild(corner);
+
+        const hWall = document.createElement('div');
+        hWall.id = `hWall_${gridRows}_${c}`;
+        const state = gridData.hWalls[gridRows][c];
+        hWall.className = `h-wall ${getWallClass(state)}`;
+        hWall.style.width = `${currentWidthPx}px`;
+        renderWallLabel(hWall, gridData.hLabels[gridRows][c]);
+
+        if (currentMode === 'edit') {
+          hWall.onmousedown = (e) => {
+            isMouseDown = true;
+            applyToolToHWall(gridRows, c, hWall);
+            e.preventDefault();
+          };
+          hWall.onmouseenter = () => {
+            if (isMouseDown && currentTool !== 'wall-number') applyToolToHWall(gridRows, c, hWall);
+          };
+        } else {
+          hWall.style.cursor = 'default';
+        }
+        bottomRow.appendChild(hWall);
+      }
+      const endCorner = document.createElement('div');
+      endCorner.className = 'c-wall';
+      bottomRow.appendChild(endCorner);
+      container.appendChild(bottomRow);
+    }
+
+    function renderWallLabel(wallElem, labelText) {
+      const oldLabel = wallElem.querySelector('.wall-label');
+      if (oldLabel) oldLabel.remove();
+
+      if (labelText) {
+        const label = document.createElement('span');
+        label.className = 'wall-label';
+        label.innerText = labelText;
+        wallElem.appendChild(label);
+      }
+    }
+
+    function getWallClass(state) {
+      switch (state) {
+        case 1: return 'wall-thick';
+        case 2: return 'wall-wavy';
+        case 3: return 'wall-red';
+        case 4: return 'wall-blue';
+        case 5: return 'wall-green';
+        case 6: return 'wall-yellow';
+        case 7: return 'wall-orange';
+        default: return 'wall-none';
+      }
+    }
+
+    function applyCellStyling(domElement, type) {
+      domElement.innerHTML = '';
+      domElement.className = 'maze-cell flex items-center justify-center font-bold transition-colors select-none cursor-pointer';
+
+      switch (type) {
+        case 'black':
+          domElement.classList.add('bg-slate-800', 'text-white');
+          break;
+        case 'pillar':
+          domElement.classList.add('bg-slate-200', 'text-slate-800');
+          domElement.innerText = '❌';
+          break;
+        case 'reception':
+          domElement.classList.add('bg-emerald-100', 'border', 'border-emerald-500', 'text-emerald-800');
+          domElement.innerText = '☑';
+          break;
+        default:
+          domElement.classList.add('bg-white', 'hover:bg-slate-50');
+          break;
+      }
+    }
+
+    // --- ピンポイント更新による高速描画処理 ---
+
+    function applyToolToCell(r, c, domElem) {
+      if (['default', 'pillar', 'black', 'reception'].includes(currentTool)) {
+        gridData.cells[r][c] = currentTool;
+        if (domElem) {
+          applyCellStyling(domElem, currentTool);
+        }
+      }
+    }
+
+    function getWallStateFromTool(tool) {
+      switch (tool) {
+        case 'wall-thick': return 1;
+        case 'wall-wavy': return 2;
+        case 'wall-red': return 3;
+        case 'wall-blue': return 4;
+        case 'wall-green': return 5;
+        case 'wall-yellow': return 6;
+        case 'wall-orange': return 7;
+        default: return 0;
+      }
+    }
+
+    function applyToolToHWall(r, c, domElem) {
+      if (currentTool === 'wall-number') {
+        const currentVal = gridData.hLabels[r][c] || '';
+        const val = prompt('壁・境界線にセットする番号/テキストを入力してください (空欄で削除)', currentVal);
+        if (val !== null) {
+          gridData.hLabels[r][c] = val.trim();
+          renderWallLabel(domElem, gridData.hLabels[r][c]);
+        }
+        return;
+      }
+
+      if (currentTool.startsWith('wall-')) {
+        const wallState = getWallStateFromTool(currentTool);
+        gridData.hWalls[r][c] = wallState;
+        if (domElem) {
+          domElem.className = `h-wall ${getWallClass(wallState)}`;
+        }
+      }
+    }
+
+    function applyToolToVWall(r, c, domElem) {
+      if (currentTool === 'wall-number') {
+        const currentVal = gridData.vLabels[r][c] || '';
+        const val = prompt('壁・境界線にセットする番号/テキストを入力してください (空欄で削除)', currentVal);
+        if (val !== null) {
+          gridData.vLabels[r][c] = val.trim();
+          renderWallLabel(domElem, gridData.vLabels[r][c]);
+        }
+        return;
+      }
+
+      if (currentTool.startsWith('wall-')) {
+        const wallState = getWallStateFromTool(currentTool);
+        gridData.vWalls[r][c] = wallState;
+        if (domElem) {
+          domElem.className = `v-wall ${getWallClass(wallState)}`;
+        }
+      }
+    }
+
+    function selectTool(toolKey) {
+      currentTool = toolKey;
+      document.querySelectorAll('.tool-btn').forEach(btn => {
+        if (btn.dataset.tool === toolKey) {
+          btn.classList.add('border-indigo-600', 'bg-indigo-50', 'text-indigo-900', 'font-bold', 'ring-2', 'ring-indigo-400');
+        } else {
+          btn.classList.remove('border-indigo-600', 'bg-indigo-50', 'text-indigo-900', 'font-bold', 'ring-2', 'ring-indigo-400');
+        }
+      });
+    }
+
+    function setMode(mode) {
+      currentMode = mode;
+      const viewBtn = document.getElementById('modeViewBtn');
+      const editBtn = document.getElementById('modeEditBtn');
+      const badge = document.getElementById('currentModeBadge');
+      const editTools = document.getElementById('editTools');
+      const viewTools = document.getElementById('viewTools');
+
+      if (mode === 'edit') {
+        editBtn.className = 'px-3 py-1 text-xs font-semibold rounded bg-amber-500 text-slate-950 shadow flex items-center gap-1';
+        viewBtn.className = 'px-3 py-1 text-xs font-semibold rounded text-slate-300 hover:text-white flex items-center gap-1';
+        badge.className = 'px-2 py-0.5 text-xs font-bold rounded bg-amber-100 text-amber-800 border border-amber-300';
+        badge.innerText = '編集モード';
+        editTools.classList.remove('hidden');
+        viewTools.classList.add('hidden');
+      } else {
+        viewBtn.className = 'px-3 py-1 text-xs font-semibold rounded bg-indigo-600 text-white shadow flex items-center gap-1';
+        editBtn.className = 'px-3 py-1 text-xs font-semibold rounded text-slate-300 hover:text-white flex items-center gap-1';
+        badge.className = 'px-2 py-0.5 text-xs font-bold rounded bg-indigo-100 text-indigo-800 border border-indigo-300';
+        badge.innerText = '閲覧モード';
+        editTools.classList.add('hidden');
+        viewTools.classList.remove('hidden');
+      }
+      renderGrid();
+    }
+
+    function clearGrid() {
+      gridData = createEmptyGrid(gridRows, gridCols);
+      renderGrid();
+      showToast('グリッドを初期状態にリセットしました');
+    }
+
+    // --- データの保存・読み込み ---
+    function saveData() {
+      const payload = {
+        rows: gridRows,
+        cols: gridCols,
+        rowLengths: rowLengths,
+        colLengths: colLengths,
+        data: gridData
+      };
+      const jsonStr = JSON.stringify(payload, null, 2);
+      const blob = new Blob([jsonStr], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `maze_design_${gridCols}x${gridRows}_${new Date().toISOString().slice(0,10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      showToast('JSONファイルをダウンロード保存しました');
+    }
+
+    function loadData(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const loaded = JSON.parse(e.target.result);
+          if (loaded.rows && loaded.cols && loaded.data) {
+            gridRows = loaded.rows;
+            gridCols = loaded.cols;
+            
+            rowLengths = loaded.rowLengths || Array(gridRows).fill(1);
+            colLengths = loaded.colLengths || Array(gridCols).fill(1);
+
+            gridData = loaded.data;
+            if (!gridData.hLabels) gridData.hLabels = Array(gridRows + 1).fill(null).map(() => Array(gridCols).fill(''));
+            if (!gridData.vLabels) gridData.vLabels = Array(gridRows).fill(null).map(() => Array(gridCols + 1).fill(''));
+
+            document.getElementById('rowsInput').value = gridRows;
+            document.getElementById('colsInput').value = gridCols;
+            
+            renderLengthUI();
+            applyLengthSettings();
+            showToast('設計図データを正常に読み込みました');
+          } else {
+            showToast('ファイルの形式が正しくありません', true);
+          }
+        } catch (err) {
+          showToast('ファイルの読み込みに失敗しました', true);
+        }
+      };
+      reader.readAsText(file);
+    }
+
+    window.addEventListener('mouseup', () => {
+      isMouseDown = false;
+    });
+
+    // ページ初期化
+    window.onload = () => {
+      initLengths(gridRows, gridCols);
+      selectTool('default');
+      setZoom(22);
+      document.getElementById('rowsInput').value = gridRows;
+      document.getElementById('colsInput').value = gridCols;
+      renderLengthUI();
+      applyLengthSettings();
+    };
+  </script>
+</body>
+</html>
